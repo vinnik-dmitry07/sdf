@@ -1,0 +1,13 @@
+--find-links https://download.pytorch.org/whl/torch_stable.html
+torch==1.4.0
+torchvision==0.5.0
+notebook
+matplotlib
+scipy
+plyfile==0.7.2
+trimesh==3.6.20
+scikit-image==0.16.2
+tensorboard
+numpy
+tqdm
+torchmeta
