@@ -77,21 +77,27 @@ class MNISTSDFDataset(torch.utils.data.Dataset):
         return len(self._img_dataset)
 
     def __getitem__(self, item):
-        coord_values = self.mesh_grid.reshape(-1, 2)
+        coords = self.mesh_grid.reshape(-1, 2)
 
         img = self.get_image(item)
         signed_distance_img, binary_img = self.transformed[item] if self.preprocess else self.transform(img)
-        signed_distance_values = signed_distance_img.reshape((-1, 1))
+        real_sdf = signed_distance_img.reshape((-1, 1))
 
-        indices = torch.randperm(coord_values.shape[0])
+        indices = torch.randperm(coords.shape[0])
         context_indices = indices[:indices.shape[0] // 2]
         query_indices = indices[indices.shape[0] // 2:]
 
+        surface_coords = self.mesh_grid[binary_img.reshape(-1) == 1]
+        idx = torch.randperm(surface_coords.size(0))[:200]
+        surface_coords = surface_coords[idx]
+        surface_sdf = torch.zeros((surface_coords.shape[0], 1))
+
         meta_dict = {
             'index': item,
-            'context': {'coords': coord_values[context_indices], 'real_sdf': signed_distance_values[context_indices]},
-            'query': {'coords': coord_values[query_indices], 'real_sdf': signed_distance_values[query_indices]},
-            'all': {'coords': coord_values, 'real_sdf': signed_distance_values},
+            'context': {'coords': coords[context_indices], 'real_sdf': real_sdf[context_indices]},
+            'query': {'coords': coords[query_indices], 'real_sdf': real_sdf[query_indices]},
+            'surface': {'coords': surface_coords, 'real_sdf': surface_sdf},
+            'all': {'coords': coords, 'real_sdf': real_sdf},
         }
         return meta_dict
 
@@ -130,20 +136,20 @@ class CIFAR10:
         return len(self._img_dataset)
 
     def __getitem__(self, item):
-        coord_values = self.mesh_grid.reshape(-1, 2)
+        coords = self.mesh_grid.reshape(-1, 2)
 
         norm_img = self.get_norm_image(item)
         norm_img_flat = norm_img.view(-1, 3)
 
-        indices = torch.randperm(coord_values.shape[0])
+        indices = torch.randperm(coords.shape[0])
         context_indices = indices[:indices.shape[0] // 2]
         query_indices = indices[indices.shape[0] // 2:]
 
         meta_dict = {
             'index': item,
-            'context': {'coords': coord_values[context_indices], 'real_sdf': norm_img_flat[context_indices]},
-            'query': {'coords': coord_values[query_indices], 'real_sdf': norm_img_flat[query_indices]},
-            'all': {'coords': coord_values, 'real_sdf': norm_img_flat},
+            'context': {'coords': coords[context_indices], 'real_sdf': norm_img_flat[context_indices]},
+            'query': {'coords': coords[query_indices], 'real_sdf': norm_img_flat[query_indices]},
+            'all': {'coords': coords, 'real_sdf': norm_img_flat},
         }
         return meta_dict
 
@@ -183,8 +189,6 @@ class ShapeNetDataset(torch.utils.data.Dataset):
 
 # noinspection PyUnusedLocal
 def l2_loss(predictions, gt, sigma=None):
-    assert len(predictions.shape) == 3
-    assert predictions.shape[0] == 1
     return ((predictions - gt) ** 2).mean()
 
 
@@ -228,24 +232,29 @@ def lin2img(tensor):
 
 
 def next_step(
-        model, dataset, epoch, step, batch_cpu, losses, get_forward_params, get_inner_preds, log_every=100, batch_pos=0
+        model, dataset, epoch, step, batch_cpu, losses, get_context_params, has_inner_preds,
+        log_every=100, batch_pos=0, test=False,
 ):
     batch_gpu = dict_to_gpu(batch_cpu)
 
-    forward_params = get_forward_params(batch_gpu)
-    pred_sdf = model.forward(batch_gpu['query']['coords'], forward_params)
+    context_params = get_context_params(batch_gpu)
+    pred_sdf = model.forward(batch_gpu['query']['coords'], context_params)
 
     loss = l2_loss(pred_sdf, batch_gpu['query']['real_sdf'])
     losses.append(loss.item())
 
     if step % log_every == 0:
+        assert test != has_inner_preds
         tqdm.write(f'Epoch: {epoch} \t step: {step} \t loss: {loss}')
 
         inner_preds = []
         with torch.no_grad():
-            if get_inner_preds:
-                inner_preds = get_inner_preds(batch_gpu)
-            final_pred = model.forward(batch_gpu['all']['coords'], forward_params)
+            if has_inner_preds:
+                inner_preds = model.generate_params(batch_gpu['all'])[1]
+            final_pred = model.forward(
+                batch_gpu['surface']['coords'] if test else batch_gpu['all']['coords'],
+                context_params
+            )
         all_preds = inner_preds + [final_pred]
 
         plt.rcParams.update({'font.size': 22, 'font.family': 'monospace'})

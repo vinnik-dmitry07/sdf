@@ -53,7 +53,7 @@ class MetaSDF(nn.Module):
             inner_preds = []
             for step_num in range(num_meta_steps):
                 context['coords'].requires_grad_()
-                context_pred_sdf = self.hyponet.forward(context['coords'], params=context_params)
+                context_pred_sdf = self.hyponet.forward(context['coords'], context_params)
                 inner_preds.append(context_pred_sdf)
 
                 loss = self.loss(context_pred_sdf, context['real_sdf'], sigma=self.sigma)
@@ -82,8 +82,8 @@ class MetaSDF(nn.Module):
 
         return context_params, inner_preds
 
-    def forward(self, query_coords, context_params, **kwargs):
-        output = self.hyponet(query_coords, params=context_params)
+    def forward(self, coords, context_params, **kwargs):
+        output = self.hyponet(coords, params=context_params)
         return output
 
 
@@ -164,8 +164,8 @@ class SDFHyperNetwork(nn.Module):
         self.hyponet = hyponet
         self.hypernet = hypernet
 
-    def forward(self, coords, index):
-        z = self.encoder(index)
+    def forward(self, coords, context_params):
+        z = self.encoder(context_params['index'])
         batch_size = z.shape[0]
         z = z.reshape(batch_size, -1)
         params = self.hypernet(z)
@@ -219,9 +219,9 @@ class SineLayer(MetaModule):
                     np.sqrt(6 / self.in_features) / self.omega_0
                 )
 
-    def forward(self, input_, params=None):
+    def forward(self, input_, context_params):
         # noinspection PyArgumentList
-        intermediate = self.linear(input_, params=self.get_subdict(params, 'linear'))
+        intermediate = self.linear(input_, params=self.get_subdict(context_params, 'linear'))
         return torch.sin(self.omega_0 * intermediate)
 
 
@@ -254,10 +254,10 @@ class Siren(MetaModule):
 
         self.net = nn.ModuleList(self.net)
 
-    def forward(self, coords, params=None):
-        x = coords
+    def forward(self, coords, context_params):
+        res = coords
 
         for i, layer in enumerate(self.net):
-            x = layer(x, params=self.get_subdict(params, f'net.{i}'))
+            res = layer(res, params=self.get_subdict(context_params, f'net.{i}'))
 
-        return x
+        return res
