@@ -11,3 +11,8 @@ tensorboard
 numpy
 tqdm
 torchmeta
+pandas
+tables
+pillow
+rtree
+scikit-learn

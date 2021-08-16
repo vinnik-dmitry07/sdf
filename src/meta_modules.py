@@ -53,7 +53,7 @@ class MetaSDF(nn.Module):
             inner_preds = []
             for step_num in range(num_meta_steps):
                 context['coords'].requires_grad_()
-                context_pred_sdf = self.hyponet(context['coords'], params=context_params)
+                context_pred_sdf = self.hyponet.forward(context['coords'], params=context_params)
                 inner_preds.append(context_pred_sdf)
 
                 loss = self.loss(context_pred_sdf, context['real_sdf'], sigma=self.sigma)
@@ -62,7 +62,7 @@ class MetaSDF(nn.Module):
                     loss,
                     context_params.values(),
                     allow_unused=False,
-                    create_graph=(True if (not self.first_order or step_num == num_meta_steps - 1) else False)
+                    create_graph=(not self.first_order) or (step_num == num_meta_steps - 1),
                 )
 
                 for param_num, ((name, param), grad) in enumerate(zip(context_params.items(), grads)):

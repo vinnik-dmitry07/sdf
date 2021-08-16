@@ -1,13 +1,11 @@
-import torch
-from torch import nn
-import torch.nn.functional as F
-import torch.nn.parallel
-from torchmeta.modules import (MetaModule, MetaSequential, MetaLinear)
-from torch.nn.init import _calculate_correct_fan
-import numpy as np
 from collections import OrderedDict
-import dataio
-import math
+
+import numpy as np
+import torch
+import torch.nn.parallel
+from torch import nn
+from torch.nn.init import _calculate_correct_fan
+from torchmeta.modules import (MetaModule, MetaSequential)
 
 
 def init_weights_normal(m):
@@ -46,8 +44,9 @@ def sal_init_last_layer(m):
 
 
 class BatchLinear(nn.Linear, MetaModule):
-    '''A linear meta-layer that can deal with batched weight matrices and biases, as for instance output by a
-    hypernetwork.'''
+    """
+    A linear meta-layer that can deal with batched weight matrices and biases, as for instance output by a hypernetwork.
+    """
     __doc__ = nn.Linear.__doc__
 
     def forward(self, input, params=None):
@@ -57,7 +56,7 @@ class BatchLinear(nn.Linear, MetaModule):
         bias = params.get('bias', None)
         weight = params['weight']
 
-        output = input.matmul(weight.permute(*[i for i in range(len(weight.shape)-2)], -1, -2))
+        output = input.matmul(weight.permute(*[i for i in range(len(weight.shape) - 2)], -1, -2))
         output += bias.unsqueeze(-2)
         return output
 
@@ -72,12 +71,12 @@ class Embedding(nn.Module):
         self.N_freqs = N_freqs
         self.in_channels = in_channels
         # self.funcs = [torch.sin, torch.cos]
-        self.out_channels = in_channels*(2*N_freqs+1)
+        self.out_channels = in_channels * (2 * N_freqs + 1)
 
         if logscale:
-            self.freq_bands = 2**torch.linspace(0, N_freqs-1, N_freqs)
+            self.freq_bands = 2 ** torch.linspace(0, N_freqs - 1, N_freqs)
         else:
-            self.freq_bands = torch.linspace(1, 2**(N_freqs-1), N_freqs)
+            self.freq_bands = torch.linspace(1, 2 ** (N_freqs - 1), N_freqs)
 
     def forward(self, x):
         """
@@ -93,16 +92,16 @@ class Embedding(nn.Module):
         funcs = [torch.sin, torch.cos]
         for freq in self.freq_bands:
             for func in funcs:
-                out += [func(freq*x)]
+                out += [func(freq * x)]
 
         return torch.cat(out, -1)
-    
+
 
 class PEFC(MetaModule):
     def __init__(self, in_features, out_features, num_hidden_layers, hidden_features):
         super().__init__()
 
-        embedding_dim=22 if in_features==2 else 33
+        embedding_dim = 22 if in_features == 2 else 33
         self.net = [Embedding(in_features, 5), BatchLinear(embedding_dim, hidden_features), nn.ReLU(inplace=True)]
 
         for i in range(num_hidden_layers):
@@ -112,12 +111,13 @@ class PEFC(MetaModule):
         self.net.append(BatchLinear(hidden_features, out_features))
 
         self.net = MetaSequential(*self.net)
-        
+
     def forward(self, coords, params=None, **kwargs):
+        # noinspection PyArgumentList
         output = self.net(coords, params=self.get_subdict(params, 'net'))
         return output
-    
-    
+
+
 class ReLUFC(MetaModule):
     def __init__(self, in_features, out_features, num_hidden_layers, hidden_features):
         super().__init__()
@@ -131,7 +131,8 @@ class ReLUFC(MetaModule):
         self.net.append(BatchLinear(hidden_features, out_features))
 
         self.net = MetaSequential(*self.net)
-        
+
     def forward(self, coords, params=None, **kwargs):
+        # noinspection PyArgumentList
         output = self.net(coords, params=self.get_subdict(params, 'net'))
         return output
