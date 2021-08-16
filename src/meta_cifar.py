@@ -34,8 +34,8 @@ for epoch in tqdm(range(3), desc='Epoch'):
     for step, batch_cpu in enumerate(tqdm(train_dataloader, desc='Train')):
         train_loss = next_step(
             model, train_dataset, epoch, step, batch_cpu, train_losses,
-            get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context'])[0],
-            has_inner_preds=True,
+            get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
+            get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),
         )
 
         writer.add_scalar('Loss/train', train_loss, global_step=step + epoch * len(train_dataloader))
@@ -49,8 +49,8 @@ for epoch in tqdm(range(3), desc='Epoch'):
         for step, batch_cpu in enumerate(tqdm(val_dataloader, desc='Valid')):
             valid_loss = next_step(
                 model, val_dataset, epoch, step, batch_cpu, val_losses,
-                get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context'])[0],
-                has_inner_preds=True,
+                get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
+                get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),
             )
 
             writer.add_scalar('Loss/valid', valid_loss, global_step=step + epoch * len(val_dataloader))

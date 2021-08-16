@@ -41,7 +41,7 @@ class MetaSDF(nn.Module):
         self.sigma = nn.Parameter(torch.ones(2))
         self.sigma_outer = nn.Parameter(torch.ones(2))
 
-    def generate_params(self, context, num_meta_steps=None):
+    def generate_params(self, context, num_meta_steps=None, return_preds=False):
         meta_batch_size = context['coords'].shape[0]
         num_meta_steps = num_meta_steps if num_meta_steps is not None else self.num_meta_steps
 
@@ -80,7 +80,10 @@ class MetaSDF(nn.Module):
                     # TODO: Add proximal regularization from iMAML
                     # Add meta-regularization
 
-        return context_params, inner_preds
+        if return_preds:
+            return inner_preds
+
+        return context_params
 
     def forward(self, coords, context_params, **kwargs):
         output = self.hyponet(coords, params=context_params)

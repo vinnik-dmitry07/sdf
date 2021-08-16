@@ -87,8 +87,15 @@ class MNISTSDFDataset(torch.utils.data.Dataset):
         context_indices = indices[:indices.shape[0] // 2]
         query_indices = indices[indices.shape[0] // 2:]
 
+        # import os
+        # import common
+        # import torch
+        # from tqdm import tqdm
+        # os.chdir('src')
+        # d = common.MNISTSDFDataset('test', torch.float32, 64)
+        # print(min(len(d[i]['surface']['coords']) for i in tqdm(range(len(d)))))
         surface_coords = self.mesh_grid[binary_img.reshape(-1) == 1]
-        idx = torch.randperm(surface_coords.size(0))[:200]
+        idx = torch.randperm(surface_coords.size(0))[:76]
         surface_coords = surface_coords[idx]
         surface_sdf = torch.zeros((surface_coords.shape[0], 1))
 
@@ -232,29 +239,29 @@ def lin2img(tensor):
 
 
 def next_step(
-        model, dataset, epoch, step, batch_cpu, losses, get_context_params, has_inner_preds,
-        log_every=100, batch_pos=0, test=False,
+        model, dataset, epoch, step, batch_cpu, losses, get_context_params,
+        get_context_params_test=None, has_inner_preds=False, log_every=100, batch_pos=0,
 ):
     batch_gpu = dict_to_gpu(batch_cpu)
 
-    context_params = get_context_params(batch_gpu)
-    pred_sdf = model.forward(batch_gpu['query']['coords'], context_params)
+    context_params_train = get_context_params(batch_gpu)
+    pred_sdf = model.forward(batch_gpu['query']['coords'], context_params_train)
 
     loss = l2_loss(pred_sdf, batch_gpu['query']['real_sdf'])
     losses.append(loss.item())
 
     if step % log_every == 0:
-        assert test != has_inner_preds
         tqdm.write(f'Epoch: {epoch} \t step: {step} \t loss: {loss}')
 
         inner_preds = []
         with torch.no_grad():
-            if has_inner_preds:
-                inner_preds = model.generate_params(batch_gpu['all'])[1]
-            final_pred = model.forward(
-                batch_gpu['surface']['coords'] if test else batch_gpu['all']['coords'],
-                context_params
-            )
+            if has_inner_preds:  # meaningless give model all real sdf
+                inner_preds = model.generate_params(batch_gpu['all'], return_preds=True)
+            if get_context_params_test:
+                context_params_test = get_context_params_test(batch_gpu)
+            else:
+                context_params_test = context_params_train
+            final_pred = model.forward(batch_gpu['all']['coords'], context_params_test)
         all_preds = inner_preds + [final_pred]
 
         plt.rcParams.update({'font.size': 22, 'font.family': 'monospace'})
