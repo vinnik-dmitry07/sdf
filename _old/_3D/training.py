@@ -11,7 +11,7 @@ import sys
 import numpy as np
 from tqdm.autonotebook import tqdm
 
-sys.path.append('..')
+sys.path.append('../..')
 from levelset_data import LevelsetDataset
 import levelset_data
 from torch.utils.tensorboard import SummaryWriter
@@ -34,13 +34,13 @@ def train_epoch(model, dataloader, training_mode, context_mode, optimizer):
 
         meta_data = levelset_data.meta_split(sdf_tensor, levelset_tensor, context_mode)
         
-        prediction, _ = model(meta_data)
+        prediction = model(meta_data)[0]
 #         context_x, context_y = meta_batch['context']
 #         query_x, query_y = meta_batch['query']
         
 #         fast_params = model.generate_params(context_x, context_y)
 #         prediction = model(query_x, fast_params)
-        query_y = meta_data['query'][1]
+        query_y = meta_data['query']['real_sdf']
 
         if training_mode == 'multitask':
             gt_sign = (query_y > 0).float()
@@ -92,14 +92,13 @@ def val_epoch(model, dataloader, training_mode, context_mode):
             sdf_tensor = data_dict['sdf'].cuda()
             levelset_tensor = data_dict['levelset'].cuda()
 
-            meta_data = levelset_data.meta_split(sdf_tensor, levelset_tensor, context_mode)            
-            
+            meta_data = levelset_data.meta_split(sdf_tensor, levelset_tensor, context_mode)
+
 #             context_x, context_y = meta_batch['context']
 #             query_x, query_y = meta_batch['query']
-            query_y = meta_data['query'][1]
-        
-        
-            prediction, _ = model(meta_data)
+            query_y = meta_data['query']['real_sdf']
+
+            prediction = model(meta_data)[0]
             # fast_params = model.generate_params(context_x, context_y)
             # prediction = model(query_x, fast_params)
 
@@ -119,10 +118,7 @@ def val_epoch(model, dataloader, training_mode, context_mode):
                     torch.sign(query_y)).float()/ (query_y.shape[0]*query_y.shape[1])).detach().cpu().item()
 
             elif training_mode == 'l1':
-                pred_sdf = prediction
-
-                l1_loss = torch.abs(pred_sdf - query_y).mean()
-                batch_loss = l1_loss
+                batch_loss = torch.abs(prediction - query_y).mean()
 
                 epoch_misclassification_percentage += (torch.sum(torch.sign(prediction[:, :, 0:1]) !=
                         torch.sign(query_y)).float()/ (query_y.shape[0]*query_y.shape[1])).detach().cpu().item()

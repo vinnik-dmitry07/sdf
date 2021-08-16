@@ -4,7 +4,7 @@ Reconstruct shapes using a trained model.
 
 import sys
 sys.path.append('..')
-sys.path.append('../..')
+sys.path.append('../../..')
 
 import torch
 import curriculums

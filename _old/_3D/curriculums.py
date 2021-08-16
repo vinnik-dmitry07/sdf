@@ -33,24 +33,24 @@ def inner_maml_multitask_loss(pred_input, gt_sdf, sigma):
     return l
 
 def PEMetaSDF():
-        hypo_module = PEFC(in_features=3, out_features=2,
+        hyponet = PEFC(in_features=3, out_features=2,
                          num_hidden_layers=6, hidden_features=512)
-        hypo_module.apply(sal_init)
-        hypo_module.net[-1].apply(sal_init_last_layer)
+        hyponet.apply(sal_init)
+        hyponet.net[-1].apply(sal_init_last_layer)
 
-        model = MetaSDF(hypo_module, inner_maml_multitask_loss, num_meta_steps=3, init_lr=5e-3,
-                        lr_type='simple_per_parameter', first_order=False)
+        model = MetaSDF(hyponet, inner_maml_multitask_loss, num_meta_steps=3, init_lr=5e-3,
+                        lr_type='per_parameter', first_order=False)
 
         return model
     
 def ReLUMetaSDF():
-        hypo_module = ReLUFC(in_features=3, out_features=2,
+        hyponet = ReLUFC(in_features=3, out_features=2,
                          num_hidden_layers=8, hidden_features=512)
-        hypo_module.apply(sal_init)
-        hypo_module.net[-1].apply(sal_init_last_layer)
+        hyponet.apply(sal_init)
+        hyponet.net[-1].apply(sal_init_last_layer)
 
-        model = MetaSDF(hypo_module, inner_maml_multitask_loss, num_meta_steps=5, init_lr=5e-3,
-                        lr_type='per_parameter', first_order=False)
+        model = MetaSDF(hyponet, inner_maml_multitask_loss, num_meta_steps=5, init_lr=5e-3,
+                        lr_type='per_parameter_per_step', first_order=False)
 
         return model
 

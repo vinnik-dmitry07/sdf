@@ -1,14 +1,11 @@
 import torch
-import utils
+from old import utils
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
-from torch.utils.data import DataLoader
 import modules
 import time
 import numpy as np
 import os
-import glob
-import re
 import shutil
 
 
@@ -138,7 +135,7 @@ def train_with_signed_distance_meta(model,
         for epoch in range(epochs):
             for step, meta_batch in enumerate(train_dataloader):
                 start_time = time.time()
-                pred_sd, _ = model(meta_batch)
+                pred_sd = model(meta_batch)[0]
                 loss = modules.sdf_loss(pred_sd, meta_batch['test'][1].cuda())
 
                 train_losses.append(loss)
@@ -161,7 +158,7 @@ def train_with_signed_distance_meta(model,
                     with torch.no_grad():
                         val_losses = []
                         for val_idx, meta_batch in enumerate(val_dataloader):
-                            pred_sd, _ = model(meta_batch)
+                            pred_sd = model(meta_batch)[0]
                             val_loss = modules.sdf_loss(pred_sd, meta_batch['test'][1].cuda())
                             val_losses.append(val_loss.cpu().numpy())
 

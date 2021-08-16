@@ -13,7 +13,7 @@ import sys
 import numpy as np
 
 sys.path.append('..')
-sys.path.append('../..')
+sys.path.append('../../..')
 from levelset_data import LevelsetDataset
 import levelset_data
 import argparse

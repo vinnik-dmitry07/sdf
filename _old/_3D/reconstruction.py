@@ -86,8 +86,8 @@ def generate_dense_cube(decoder, sdf_filename, levelset_filename, partial_filena
                                                  context_mode=context_mode)
 
     ####### Use the given SDF samples as context to adapt the meta-network ##########
-    context_x = meta_data['context'][0].cuda()
-    context_y = meta_data['context'][1].cuda()
+    context_x = meta_data['context']['coords'].cuda()
+    context_y = meta_data['context']['real_sdf'].cuda()
 
     with torch.no_grad():
         start_time = time.time()
