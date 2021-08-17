@@ -10,11 +10,11 @@ from modules import init_weights_normal, BatchLinear
 
 class MetaSDF(nn.Module):
     """MAML"""
-    def __init__(self, hyponet, loss, init_lr=1e-1, num_meta_steps=3, first_order=False, lr_type='static'):
+    def __init__(self, hypo_net, hypo_loss, init_lr=1e-1, num_meta_steps=3, first_order=False, lr_type='static'):
         super().__init__()
 
-        self.hyponet = hyponet
-        self.loss = loss
+        self.hypo_net = hypo_net
+        self.hypo_loss = hypo_loss
         self.num_meta_steps = num_meta_steps
         self.first_order = first_order
         self.lr_type = lr_type
@@ -26,20 +26,20 @@ class MetaSDF(nn.Module):
         elif self.lr_type == 'per_step':
             self.lr = nn.ParameterList([nn.Parameter(torch.tensor([init_lr])) for _ in range(num_meta_steps)])
         elif self.lr_type == 'per_parameter':
-            self.lr = nn.ParameterList([nn.Parameter(torch.tensor([init_lr])) for _ in hyponet.parameters()])
+            self.lr = nn.ParameterList([nn.Parameter(torch.tensor([init_lr])) for _ in hypo_net.parameters()])
         elif self.lr_type == 'per_parameter_metasgd':
             self.lr = nn.ParameterList([
-                nn.Parameter(torch.ones(param.size()) * init_lr)
-                for param in hyponet.parameters()
+                nn.Parameter(torch.ones(param.shape) * init_lr)
+                for param in hypo_net.parameters()
             ])
         elif self.lr_type == 'per_parameter_per_step':
             self.lr = nn.ModuleList([
-                nn.ParameterList([nn.Parameter(torch.ones(param.size()) * init_lr) for _ in range(num_meta_steps)])
-                for param in hyponet.parameters()
+                nn.ParameterList([nn.Parameter(torch.ones(param.shape) * init_lr) for _ in range(num_meta_steps)])
+                for param in hypo_net.parameters()
             ])
 
-        self.sigma = nn.Parameter(torch.ones(2))
-        self.sigma_outer = nn.Parameter(torch.ones(2))
+        self.hyper_sigma = nn.Parameter(torch.ones(2))
+        self.hypo_sigma = nn.Parameter(torch.ones(2))
 
     def generate_params(self, context, num_meta_steps=None, return_preds=False):
         meta_batch_size = context['coords'].shape[0]
@@ -47,16 +47,17 @@ class MetaSDF(nn.Module):
 
         with torch.enable_grad():
             context_params = OrderedDict()
-            for name, param in self.hyponet.meta_named_parameters():  # ~hypernet parameters
-                context_params[name] = param[None, ...].repeat((meta_batch_size,) + (1,) * len(param.shape))
+            for name, param in self.hypo_net.meta_named_parameters():  # ~hyper_net parameters
+                # xMeta_batch_size first dim
+                context_params[name] = param.unsqueeze(0).repeat((meta_batch_size,) + (1,) * len(param.shape))
 
             inner_preds = []
             for step_num in range(num_meta_steps):
                 context['coords'].requires_grad_()
-                context_pred_sdf = self.hyponet.forward(context['coords'], context_params)
+                context_pred_sdf = self.hypo_net.forward(context['coords'], context_params)
                 inner_preds.append(context_pred_sdf)
 
-                loss = self.loss(context_pred_sdf, context['real_sdf'], sigma=self.sigma)
+                loss = self.hypo_loss(context_pred_sdf, context['real_sdf'], sigma=self.hypo_sigma)
 
                 grads = torch.autograd.grad(
                     loss,
@@ -86,25 +87,25 @@ class MetaSDF(nn.Module):
         return context_params
 
     def forward(self, coords, context_params, **kwargs):
-        output = self.hyponet(coords, params=context_params)
+        output = self.hypo_net(coords, params=context_params)
         return output
 
 
 class HyperNetwork(nn.Module):
-    def __init__(self, in_features, hidden_layers, hidden_features, hyponet, per_param=False):
+    def __init__(self, in_features, hidden_layers, hidden_features, hypo_net):
         super().__init__()
 
         self.names = []
         self.nets = nn.ModuleList()
         self.param_shapes = []
-        hypo_parameters = hyponet.meta_named_parameters()
+        hypo_parameters = hypo_net.meta_named_parameters()
         for name, param in hypo_parameters:
             self.names.append(name)
-            self.param_shapes.append(param.size())
+            self.param_shapes.append(param.shape)
 
             hn = FCBlock(
                 hidden_features, hidden_layers, in_features,
-                out_features=int(torch.prod(torch.tensor(param.size()))),
+                out_features=int(torch.prod(torch.tensor(param.shape))),
                 outermost_linear=True,
             )
             with torch.no_grad():
@@ -161,28 +162,28 @@ class SDFHyperNetwork(nn.Module):
     See Hypernetworks_MNIST for examples.
     """
 
-    def __init__(self, encoder, hypernet, hyponet):
+    def __init__(self, encoder, hyper_net, hypo_net):
         super().__init__()
         self.encoder = encoder
-        self.hyponet = hyponet
-        self.hypernet = hypernet
+        self.hypo_net = hypo_net
+        self.hyper_net = hyper_net
 
     def forward(self, coords, context_params):
         z = self.encoder(context_params['index'])
         batch_size = z.shape[0]
         z = z.reshape(batch_size, -1)
-        params = self.hypernet(z)
-        out = self.hyponet.forward(coords, params)
+        params = self.hyper_net.forward(z)
+        out = self.hypo_net.forward(coords, params)
         return out
 
-    def freeze_hypernet(self):
+    def freeze_hyper_net(self):
         # Freeze hypernetwork for latent code optimization
-        for param in self.hypernet.parameters():
+        for param in self.hyper_net.parameters():
             param.requires_grad = False
 
-    def unfreeze_hypernet(self):
+    def unfreeze_hyper_net(self):
         # Unfreeze hypernetwork for training
-        for param in self.hypernet.parameters():
+        for param in self.hyper_net.parameters():
             param.requires_grad = True
 
 
@@ -222,9 +223,9 @@ class SineLayer(MetaModule):
                     np.sqrt(6 / self.in_features) / self.omega_0
                 )
 
-    def forward(self, input_, context_params):
+    def forward(self, input_, params):
         # noinspection PyArgumentList
-        intermediate = self.linear(input_, params=self.get_subdict(context_params, 'linear'))
+        intermediate = self.linear(input_, params=self.get_subdict(params, 'linear'))
         return torch.sin(self.omega_0 * intermediate)
 
 
@@ -257,10 +258,10 @@ class Siren(MetaModule):
 
         self.net = nn.ModuleList(self.net)
 
-    def forward(self, coords, context_params):
+    def forward(self, coords, params):
         res = coords
 
         for i, layer in enumerate(self.net):
-            res = layer(res, params=self.get_subdict(context_params, f'net.{i}'))
+            res = layer(res, params=self.get_subdict(params, f'net.{i}'))
 
         return res

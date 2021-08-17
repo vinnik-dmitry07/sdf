@@ -84,26 +84,26 @@ class MNISTSDFDataset(torch.utils.data.Dataset):
         real_sdf = signed_distance_img.reshape((-1, 1))
 
         indices = torch.randperm(coords.shape[0])
-        context_indices = indices[:indices.shape[0] // 2]
-        query_indices = indices[indices.shape[0] // 2:]
+        context_num = 537  # mean surface size; indices.shape[0] // 2
+        context_indices = indices[:context_num]
+        query_indices = indices[context_num:]
 
-        # import os
-        # import common
-        # import torch
-        # from tqdm import tqdm
-        # os.chdir('src')
-        # d = common.MNISTSDFDataset('test', torch.float32, 64)
-        # print(min(len(d[i]['surface']['coords']) for i in tqdm(range(len(d)))))
         surface_coords = self.mesh_grid[binary_img.reshape(-1) == 1]
-        idx = torch.randperm(surface_coords.size(0))[:76]
-        surface_coords = surface_coords[idx]
+        if surface_coords.shape[0] < context_num:
+            extend_num = context_num - surface_coords.shape[0]
+            extend_idx = torch.randint(surface_coords.shape[0], (extend_num,))
+            extend = surface_coords[extend_idx]
+            surface_coords = torch.cat((surface_coords, extend))
+        else:
+            select_idx = torch.randint(surface_coords.shape[0], (context_num,))
+            surface_coords = surface_coords[select_idx]
         surface_sdf = torch.zeros((surface_coords.shape[0], 1))
 
         meta_dict = {
             'index': item,
             'context': {'coords': coords[context_indices], 'real_sdf': real_sdf[context_indices]},
             'query': {'coords': coords[query_indices], 'real_sdf': real_sdf[query_indices]},
-            'surface': {'coords': surface_coords, 'real_sdf': surface_sdf},
+            'surface': {'coords': surface_coords, 'real_sdf': surface_sdf, 'num': surface_coords.shape[0]},
             'all': {'coords': coords, 'real_sdf': real_sdf},
         }
         return meta_dict
@@ -136,7 +136,7 @@ class CIFAR10:
         return img
 
     def get_norm_image(self, index) -> torch.Tensor:
-        img = torch.tensor(self.transform(self.get_image(index)), dtype=self.dtype)
+        img = self.transform(self.get_image(index)).permute(1, 2, 0).type(self.dtype)
         return img
 
     def __len__(self):
@@ -165,11 +165,13 @@ class ShapeNetDataset(torch.utils.data.Dataset):
     def __init__(self, split, dtype):
         self.dtype = dtype
 
-        self.store = pd.HDFStore('../datasets/shapenet_cropped.h5', 'r')
+        self.store = pd.HDFStore('../datasets/shapenet30000.h5', 'r')
         all_keys = [k.lstrip('/') for k in self.store.keys()]
         self.keys = train_test_split(all_keys, train_size=0.8, shuffle=False)[0 if split == 'train' else 1]
 
-    def get_image(self, index) -> torch.Tensor:
+    def get_image(self, index):
+        # meta_dict = self[index]
+        # img = coords_to_image(meta_dict['all']['coords'][meta_dict['all']['real_sdf'].squeeze() <= 0])
         img = image.imread(f'../datasets/points/{self.keys[index]}.jpg')
         return img
 
@@ -179,7 +181,7 @@ class ShapeNetDataset(torch.utils.data.Dataset):
     def __getitem__(self, item):
         df = self.store[self.keys[item]]
         coords = torch.tensor(df.iloc[:, 0:3].values, dtype=self.dtype)
-        real_sdf = torch.tensor(df.iloc[:, 3].values, dtype=self.dtype).unsqueeze(1)
+        real_sdf = torch.tensor(df.iloc[:, 3:4].values, dtype=self.dtype)
 
         indices = torch.randperm(coords.shape[0])
         context_indices = indices[:indices.shape[0] // 2]
@@ -195,41 +197,58 @@ class ShapeNetDataset(torch.utils.data.Dataset):
 
 
 # noinspection PyUnusedLocal
-def l2_loss(predictions, gt, sigma=None):
-    return ((predictions - gt) ** 2).mean()
+def l2_loss(pred, real, sigma=None):
+    return ((pred - real) ** 2).mean()
 
 
 # noinspection PyUnusedLocal
-def l2_batch_loss(predictions, gt, sigma=None):
-    batch_loss = ((predictions - gt) ** 2).sum(0).mean()  # sum along batch
-    return batch_loss
+def l2_batch_loss(pred, real, sigma=None):
+    return ((pred - real) ** 2).sum(0).mean()  # sum along batch
 
 
 # noinspection PyUnusedLocal
-def l1_batch_loss(predictions, gt, sigma=None):
-    batch_loss = torch.abs(predictions - gt).sum(0).mean()  # sum along batch
-    return batch_loss
+def l1_loss(pred, real, sigma=None):
+    return torch.abs(pred - real).mean()
 
 
-def multitask_loss(pred_input, gt_sdf, sigma):
-    assert not torch.any(gt_sdf == -1.)
-    gt_sign = (gt_sdf > 0).float()
-    pred_sign = torch.sigmoid(pred_input[:, :, 0:1])  # : - to save [1, N, 1] last dim
-    pred_sdf = pred_input[:, :, 1:2]
+# noinspection PyUnusedLocal
+def l1_batch_loss(pred, real, sigma=None):
+    return torch.abs(pred - real).sum(0).mean()  # sum along batch
+
+
+def multitask_loss(pred, real_sdf, sigma):
+    assert not torch.any(real_sdf == -1.)
+    real_sign = (real_sdf > 0).float()
+    pred_sign = torch.sigmoid(pred[:, :, 0:1])  # : - to save [1, N, 1] last dim
+    pred_sdf = pred[:, :, 1:2]
 
     # Binary Cross Entropy: y*log(x) + (1 - y)*log(1 - x)
-    bce_loss = torch.nn.BCELoss(reduction='none')(pred_sign, gt_sign).sum(0).mean()  # sum along batch
-    l1_loss_ = l1_batch_loss(pred_sdf, gt_sdf)
+    bce_loss = torch.nn.BCELoss(reduction='none')(pred_sign, real_sign).mean()  # sum along batch
+    l1_loss_ = l1_loss(pred_sdf, real_sdf)
+
+    loss = bce_loss / (2 * sigma[0] ** 2) + l1_loss_ / (2 * sigma[1] ** 2) + torch.log(sigma.prod())
+    return loss
+
+
+def multitask_batch_loss(pred, real_sdf, sigma):
+    assert not torch.any(real_sdf == -1.)
+    real_sign = (real_sdf > 0).float()
+    pred_sign = torch.sigmoid(pred[:, :, 0:1])  # : - to save [1, N, 1] last dim
+    pred_sdf = pred[:, :, 1:2]
+
+    # Binary Cross Entropy: y*log(x) + (1 - y)*log(1 - x)
+    bce_loss = torch.nn.BCELoss(reduction='none')(pred_sign, real_sign).sum(0).mean()  # sum along batch
+    l1_loss_ = l1_batch_loss(pred_sdf, real_sdf)
 
     batch_loss = bce_loss / (2 * sigma[0] ** 2) + l1_loss_ / (2 * sigma[1] ** 2) + torch.log(sigma.prod())
     return batch_loss
 
 
-def dict_to_gpu(ob):
-    if isinstance(ob, Mapping):
-        return {k: dict_to_gpu(v) for k, v in ob.items()}
+def dict_to_gpu(obj):
+    if isinstance(obj, Mapping):
+        return {k: dict_to_gpu(v) for k, v in obj.items()}
     else:
-        return ob.cuda()
+        return obj.cuda()
 
 
 def lin2img(tensor):
@@ -239,45 +258,50 @@ def lin2img(tensor):
 
 
 def next_step(
-        model, dataset, epoch, step, batch_cpu, losses, get_context_params,
-        get_context_params_test=None, has_inner_preds=False, log_every=100, batch_pos=0,
+        model, hyper_loss, dataset, epoch, step, batch_cpu, get_context_params,
+        get_context_params_test=None, draw_meta_steps=False, log_every=100, batch_pos=0,
 ):
     batch_gpu = dict_to_gpu(batch_cpu)
 
     context_params_train = get_context_params(batch_gpu)
     pred_sdf = model.forward(batch_gpu['query']['coords'], context_params_train)
 
-    loss = l2_loss(pred_sdf, batch_gpu['query']['real_sdf'])
-    losses.append(loss.item())
+    loss = hyper_loss(pred_sdf, batch_gpu['query']['real_sdf'], sigma=model.hyper_sigma)
 
     if step % log_every == 0:
         tqdm.write(f'Epoch: {epoch} \t step: {step} \t loss: {loss}')
 
-        inner_preds = []
+        all_preds = []
+        skip_shots = 0
         with torch.no_grad():
-            if has_inner_preds:  # meaningless give model all real sdf
-                inner_preds = model.generate_params(batch_gpu['all'], return_preds=True)
+            if hasattr(model, 'num_meta_steps'):
+                if draw_meta_steps:  # meaningless give model all real sdf
+                    inner_preds = model.generate_params(batch_gpu['all'], return_preds=True)
+                    all_preds.extend(inner_preds)
+                else:
+                    skip_shots = model.num_meta_steps
+
             if get_context_params_test:
                 context_params_test = get_context_params_test(batch_gpu)
             else:
                 context_params_test = context_params_train
             final_pred = model.forward(batch_gpu['all']['coords'], context_params_test)
-        all_preds = inner_preds + [final_pred]
+            all_preds.append(final_pred)
 
         plt.rcParams.update({'font.size': 22, 'font.family': 'monospace'})
         cols = len(all_preds) + 1
         axs = plt.subplots(nrows=1, ncols=cols, figsize=(5 * cols, 6))[1]
         for i, pred in enumerate(all_preds):
             axs[i].set_axis_off()
-            axs[i].set_title(f'Shot {i}')
+            axs[i].set_title(f'Shot {i + skip_shots}')
 
             if type(dataset) == MNISTSDFDataset:
                 img = lin2img(pred)[batch_pos].detach().cpu()
-                tmp = axs[i].imshow(img, cmap='seismic', vmin=-1, vmax=1)
+                imshow_img = axs[i].imshow(img, cmap='seismic', vmin=-1, vmax=1)
                 axs[i].contour(img, levels=[0.0], colors='black')
                 if i == 0:
                     plt.colorbar(
-                        mappable=tmp,
+                        mappable=imshow_img,
                         cax=inset_axes(axs[i], width='30%', height='3%'),
                         orientation='horizontal'
                     )
@@ -285,9 +309,16 @@ def next_step(
                 img = lin2img(pred)[batch_pos].detach().cpu()
                 axs[i].imshow(CIFAR10.denormalize(img))
             elif type(dataset) == ShapeNetDataset:
-                sdf = pred[:, :, -1].squeeze()
-                coords = batch_gpu['all']['coords'].squeeze().detach().cpu()
-                coords = coords[sdf <= 0]
+                coords = batch_gpu['all']['coords'][batch_pos].detach().cpu()
+                if hyper_loss == l2_loss:
+                    pred_sdf = pred[batch_pos, :, 0]
+                    coords = coords[pred_sdf <= 0]
+                elif hyper_loss == multitask_loss:
+                    # pred_sign = torch.sigmoid(pred[batch_pos, :, 0])  TODO
+                    pred_sdf = pred[batch_pos, :, 1]  # batch_gpu['all']['real_sdf'][batch_pos].squeeze().detach().cpu()
+                    coords = coords[pred_sdf <= 0]
+                else:
+                    raise TypeError
                 if len(coords):
                     axs[i].imshow(coords_to_image(coords))
             else:
@@ -305,6 +336,9 @@ def next_step(
         else:
             raise ValueError
 
-        plt.suptitle(('train' if model.training else 'test ') + f' {loss:.5f}')
+        plt.suptitle(
+            # dataset.keys[index] + '\n' +  # TODO
+            ('train' if model.training else 'valid ') + f' {loss:.5f}'
+        )
         plt.show()
     return loss

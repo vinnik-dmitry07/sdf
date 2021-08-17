@@ -14,10 +14,10 @@ val_dataset = CIFAR10(split='val', dtype=dtype)
 train_dataloader = DataLoader(train_dataset, batch_size=32)
 val_dataloader = DataLoader(val_dataset, batch_size=32)
 
-hyponet = Siren(in_features=2, hidden_features=128, hidden_layers=3, out_features=3, outermost_linear=True)
+hypo_net = Siren(in_features=2, hidden_features=128, hidden_layers=3, out_features=3, outermost_linear=True)
 model = MetaSDF(
-    hyponet,
-    l2_loss,
+    hypo_net,
+    l2_loss,  # MAML ignores batch
     init_lr=1e-5,
     num_meta_steps=3,
     first_order=False,
@@ -27,15 +27,13 @@ model = MetaSDF(
 optim = torch.optim.Adam(lr=5e-5, params=model.parameters())
 
 writer = SummaryWriter()
-train_losses = []
-val_losses = []
-for epoch in tqdm(range(3), desc='Epoch'):
+for epoch in tqdm(range(3000), desc='Epoch'):
     model.train()
     for step, batch_cpu in enumerate(tqdm(train_dataloader, desc='Train')):
         train_loss = next_step(
-            model, train_dataset, epoch, step, batch_cpu, train_losses,
+            model, l2_loss, train_dataset, epoch, step, batch_cpu,
             get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
-            get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),
+            draw_meta_steps=True,
         )
 
         writer.add_scalar('Loss/train', train_loss, global_step=step + epoch * len(train_dataloader))
@@ -48,9 +46,9 @@ for epoch in tqdm(range(3), desc='Epoch'):
     with torch.no_grad():
         for step, batch_cpu in enumerate(tqdm(val_dataloader, desc='Valid')):
             valid_loss = next_step(
-                model, val_dataset, epoch, step, batch_cpu, val_losses,
+                model, l2_loss, val_dataset, epoch, step, batch_cpu,
                 get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
-                get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),
+                draw_meta_steps=True,
             )
 
             writer.add_scalar('Loss/valid', valid_loss, global_step=step + epoch * len(val_dataloader))
