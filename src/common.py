@@ -1,3 +1,4 @@
+import warnings
 from collections import Mapping
 
 import PIL
@@ -165,7 +166,7 @@ class ShapeNetDataset(torch.utils.data.Dataset):
     def __init__(self, split, dtype):
         self.dtype = dtype
 
-        self.store = pd.HDFStore('../datasets/shapenet30000.h5', 'r')
+        self.store = pd.HDFStore('../datasets/shapenet300001.h5', 'r')
         all_keys = [k.lstrip('/') for k in self.store.keys()]
         self.keys = train_test_split(all_keys, train_size=0.8, shuffle=False)[0 if split == 'train' else 1]
 
@@ -259,14 +260,17 @@ def lin2img(tensor):
 
 def next_step(
         model, hyper_loss, dataset, epoch, step, batch_cpu, get_context_params,
-        get_context_params_test=None, draw_meta_steps=False, log_every=100, batch_pos=0,
+        get_context_params_test=None, draw_meta_steps=False, log_every=100,
 ):
     batch_gpu = dict_to_gpu(batch_cpu)
 
     context_params_train = get_context_params(batch_gpu)
     pred_sdf = model.forward(batch_gpu['query']['coords'], context_params_train)
 
-    loss = hyper_loss(pred_sdf, batch_gpu['query']['real_sdf'], sigma=model.hyper_sigma)
+    loss = hyper_loss(
+        pred_sdf, batch_gpu['query']['real_sdf'],
+        **({'sigma': model.hyper_sigma} if hasattr(model, 'hyper_sigma') else {})
+    )
 
     if step % log_every == 0:
         tqdm.write(f'Epoch: {epoch} \t step: {step} \t loss: {loss}')
@@ -288,6 +292,8 @@ def next_step(
             final_pred = model.forward(batch_gpu['all']['coords'], context_params_test)
             all_preds.append(final_pred)
 
+        batch_pos = np.random.randint(batch_cpu['index'].shape[0])
+
         plt.rcParams.update({'font.size': 22, 'font.family': 'monospace'})
         cols = len(all_preds) + 1
         axs = plt.subplots(nrows=1, ncols=cols, figsize=(5 * cols, 6))[1]
@@ -298,7 +304,9 @@ def next_step(
             if type(dataset) == MNISTSDFDataset:
                 img = lin2img(pred)[batch_pos].detach().cpu()
                 imshow_img = axs[i].imshow(img, cmap='seismic', vmin=-1, vmax=1)
-                axs[i].contour(img, levels=[0.0], colors='black')
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', category=UserWarning)
+                    axs[i].contour(img, levels=[0.0], colors='black')
                 if i == 0:
                     plt.colorbar(
                         mappable=imshow_img,
@@ -337,7 +345,7 @@ def next_step(
             raise ValueError
 
         plt.suptitle(
-            # dataset.keys[index] + '\n' +  # TODO
+            dataset.keys[index] + '\n' +  # TODO
             ('train' if model.training else 'valid ') + f' {loss:.5f}'
         )
         plt.show()

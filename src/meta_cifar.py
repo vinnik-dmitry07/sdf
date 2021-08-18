@@ -32,8 +32,8 @@ for epoch in tqdm(range(3000), desc='Epoch'):
     for step, batch_cpu in enumerate(tqdm(train_dataloader, desc='Train')):
         train_loss = next_step(
             model, l2_loss, train_dataset, epoch, step, batch_cpu,
-            get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
             draw_meta_steps=True,
+            get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
         )
 
         writer.add_scalar('Loss/train', train_loss, global_step=step + epoch * len(train_dataloader))
@@ -47,8 +47,8 @@ for epoch in tqdm(range(3000), desc='Epoch'):
         for step, batch_cpu in enumerate(tqdm(val_dataloader, desc='Valid')):
             valid_loss = next_step(
                 model, l2_loss, val_dataset, epoch, step, batch_cpu,
-                get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
                 draw_meta_steps=True,
+                get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
             )
 
             writer.add_scalar('Loss/valid', valid_loss, global_step=step + epoch * len(val_dataloader))
