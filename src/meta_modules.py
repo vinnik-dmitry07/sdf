@@ -86,7 +86,7 @@ class MetaSDF(nn.Module):
 
         return context_params
 
-    def forward(self, coords, context_params, **kwargs):
+    def forward(self, coords, context_params):
         output = self.hypo_net(coords, params=context_params)
         return output
 
@@ -129,8 +129,8 @@ class FCLayer(nn.Module):
             nn.ReLU(inplace=True)
         )
 
-    def forward(self, input):
-        return self.net(input)
+    def forward(self, input_):
+        return self.net(input_)
 
 
 class FCBlock(nn.Module):
@@ -151,8 +151,8 @@ class FCBlock(nn.Module):
         self.net = nn.Sequential(*self.net)
         self.net.apply(init_weights_normal)
 
-    def forward(self, input):
-        return self.net(input)
+    def forward(self, input_):
+        return self.net(input_)
 
 
 class SDFHyperNetwork(nn.Module):
@@ -197,7 +197,7 @@ class AutoDecoder(nn.Module):
         self.latent_codes = nn.Embedding(num_instances, latent_dim)
         torch.nn.init.normal_(self.latent_codes.weight.data, 0.0, 1e-3)
 
-    def forward(self, idx, **kwargs):
+    def forward(self, idx):
         z = self.latent_codes(idx)
         return z
 
@@ -224,7 +224,6 @@ class SineLayer(MetaModule):
                 )
 
     def forward(self, input_, params):
-        # noinspection PyArgumentList
         intermediate = self.linear(input_, params=self.get_subdict(params, 'linear'))
         return torch.sin(self.omega_0 * intermediate)
 

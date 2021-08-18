@@ -19,7 +19,7 @@ encoder = AutoDecoder(num_instances=len(train_dataset), latent_dim=256)
 hypo_net = ReLUFC(in_features=2, out_features=1, num_hidden_layers=2, hidden_features=256)
 hyper_net = HyperNetwork(in_features=256, hidden_layers=1, hidden_features=256, hypo_net=hypo_net)
 model = SDFHyperNetwork(encoder, hyper_net, hypo_net).cuda()
-# model = torch.load('../output/hyper.pth')  # TODO
+model = torch.load('../output/hyper.pth')  # TODO
 
 optim = torch.optim.Adam(lr=1e-4, params=model.parameters())
 

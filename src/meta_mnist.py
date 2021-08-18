@@ -30,8 +30,6 @@ model = MetaSDF(
 
 optim = torch.optim.Adam(lr=1e-4, params=model.parameters())
 
-get_context_params = lambda batch_gpu: model.generate_params(batch_gpu['context'])
-get_context_params_test = lambda batch_gpu: model.generate_params(batch_gpu['surface'])
 
 writer = SummaryWriter()
 for epoch in tqdm(range(3000), desc='Epoch'):
@@ -39,7 +37,8 @@ for epoch in tqdm(range(3000), desc='Epoch'):
     for step, batch_cpu in enumerate(tqdm(train_dataloader, desc='Train')):
         train_loss = next_step(
             model, l2_loss, train_dataset, epoch, step, batch_cpu,
-            get_context_params, get_context_params_test,
+            get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
+            get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),
         )
 
         writer.add_scalar('Loss/train', train_loss, global_step=step + epoch * len(train_dataloader))
@@ -53,7 +52,8 @@ for epoch in tqdm(range(3000), desc='Epoch'):
         for step, batch_cpu in enumerate(tqdm(val_dataloader, desc='Valid')):
             valid_loss = next_step(
                 model, l2_loss, val_dataset, epoch, step, batch_cpu,
-                get_context_params, get_context_params_test,
+                get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
+                get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),
             )
 
             writer.add_scalar('Loss/valid', valid_loss, global_step=step + epoch * len(val_dataloader))

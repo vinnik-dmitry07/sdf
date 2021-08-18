@@ -110,6 +110,7 @@ class MNISTSDFDataset(torch.utils.data.Dataset):
         return meta_dict
 
 
+# noinspection DuplicatedCode
 class CIFAR10:
     def __init__(self, split, dtype):
         self.dtype = dtype
@@ -162,11 +163,12 @@ class CIFAR10:
         return meta_dict
 
 
+# noinspection DuplicatedCode
 class ShapeNetDataset(torch.utils.data.Dataset):
     def __init__(self, split, dtype):
         self.dtype = dtype
 
-        self.store = pd.HDFStore('../datasets/shapenet300001.h5', 'r')
+        self.store = pd.HDFStore('../datasets/shapenet300000.h5', 'r')
         all_keys = [k.lstrip('/') for k in self.store.keys()]
         self.keys = train_test_split(all_keys, train_size=0.8, shuffle=False)[0 if split == 'train' else 1]
 
@@ -345,8 +347,8 @@ def next_step(
             raise ValueError
 
         plt.suptitle(
-            dataset.keys[index] + '\n' +  # TODO
-            ('train' if model.training else 'valid ') + f' {loss:.5f}'
+            ((dataset.keys[index] + '\n') if hasattr(dataset, 'keys') else '')
+            + ('train' if model.training else 'valid ') + f' {loss:.5f}'
         )
         plt.show()
     return loss

@@ -49,34 +49,34 @@ class BatchLinear(nn.Linear, MetaModule):
     """
     __doc__ = nn.Linear.__doc__
 
-    def forward(self, input, params=None):
+    def forward(self, input_, params=None):
         if params is None:
             params = OrderedDict(self.named_parameters())
 
         bias = params.get('bias', None)
         weight = params['weight']
 
-        output = input.matmul(weight.permute(*[i for i in range(len(weight.shape) - 2)], -1, -2))
+        output = input_.matmul(weight.permute(*[i for i in range(len(weight.shape) - 2)], -1, -2))
         output += bias.unsqueeze(-2)
         return output
 
 
 class Embedding(nn.Module):
-    def __init__(self, in_channels, N_freqs, logscale=True):
+    def __init__(self, in_channels, n_freqs, log_scale=True):
         """
         Defines a function that embeds x to (x, sin(2^k x), cos(2^k x), ...)
         in_channels: number of input channels (3 for both xyz and direction)
         """
         super(Embedding, self).__init__()
-        self.N_freqs = N_freqs
+        self.N_freqs = n_freqs
         self.in_channels = in_channels
         # self.funcs = [torch.sin, torch.cos]
-        self.out_channels = in_channels * (2 * N_freqs + 1)
+        self.out_channels = in_channels * (2 * n_freqs + 1)
 
-        if logscale:
-            self.freq_bands = 2 ** torch.linspace(0, N_freqs - 1, N_freqs)
+        if log_scale:
+            self.freq_bands = 2 ** torch.linspace(0, n_freqs - 1, n_freqs)
         else:
-            self.freq_bands = torch.linspace(1, 2 ** (N_freqs - 1), N_freqs)
+            self.freq_bands = torch.linspace(1, 2 ** (n_freqs - 1), n_freqs)
 
     def forward(self, x):
         """
@@ -112,8 +112,7 @@ class PEFC(MetaModule):
 
         self.net = MetaSequential(*self.net)
 
-    def forward(self, coords, params=None, **kwargs):
-        # noinspection PyArgumentList
+    def forward(self, coords, params=None):
         output = self.net(coords, params=self.get_subdict(params, 'net'))
         return output
 
@@ -132,7 +131,6 @@ class ReLUFC(MetaModule):
 
         self.net = MetaSequential(*self.net)
 
-    def forward(self, coords, params=None, **kwargs):
-        # noinspection PyArgumentList
+    def forward(self, coords, params=None):
         output = self.net(coords, params=self.get_subdict(params, 'net'))
         return output
