@@ -37,7 +37,7 @@ optimizer = torch.optim.Adam(lr=1e-4 * np.sqrt(train_dataloader.batch_size / 32)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=350, gamma=0.5)
 start_epoch = 0
 
-load_path = '../output/meta_air_e0120.pth'
+load_path = '../output/meta_air_e0122.pth'
 if load_path:
     checkpoint = torch.load(load_path)
     model = checkpoint['model']
