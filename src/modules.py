@@ -27,7 +27,6 @@ def sal_init(m):
     if type(m) == BatchLinear or nn.Linear:
         if hasattr(m, 'weight'):
             std = np.sqrt(2) / np.sqrt(_calculate_correct_fan(m.weight, 'fan_out'))
-
             with torch.no_grad():
                 m.weight.normal_(0., std)
         if hasattr(m, 'bias'):
@@ -112,8 +111,8 @@ class PEFC(MetaModule):
 
         self.net = MetaSequential(*self.net)
 
-    def forward(self, coords, params=None):
-        output = self.net(coords, params=self.get_subdict(params, 'net'))
+    def forward(self, points, params=None):
+        output = self.net(points, params=self.get_subdict(params, 'net'))
         return output
 
 
@@ -131,6 +130,6 @@ class ReLUFC(MetaModule):
 
         self.net = MetaSequential(*self.net)
 
-    def forward(self, coords, params=None):
-        output = self.net(coords, params=self.get_subdict(params, 'net'))
+    def forward(self, points, params=None):
+        output = self.net(points, params=self.get_subdict(params, 'net'))
         return output

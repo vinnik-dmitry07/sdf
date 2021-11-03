@@ -42,7 +42,7 @@ class MetaSDF(nn.Module):
         self.hypo_sigma = nn.Parameter(torch.ones(2))
 
     def generate_params(self, context, num_meta_steps=None, return_preds=False):
-        meta_batch_size = context['coords'].shape[0]
+        meta_batch_size = context['points'].shape[0]
         num_meta_steps = num_meta_steps if num_meta_steps is not None else self.num_meta_steps
 
         with torch.enable_grad():
@@ -53,16 +53,17 @@ class MetaSDF(nn.Module):
 
             inner_preds = []
             for step_num in range(num_meta_steps):
-                context['coords'].requires_grad_()
-                context_pred_sdf = self.hypo_net.forward(context['coords'], context_params)
+                context['points'].requires_grad_()
+                context_pred_sdf = self.hypo_net.forward(context['points'], context_params)
                 inner_preds.append(context_pred_sdf)
 
-                loss = self.hypo_loss(context_pred_sdf, context['real_sdf'], sigma=self.hypo_sigma)
+                # 2.2 Proximal Regularization in the Inner Level
+                # + alpha * (context_params - params).pow(2).sum()
+                loss = self.hypo_loss(context_pred_sdf, context['real_dist'], sigma=self.hypo_sigma)
 
                 grads = torch.autograd.grad(
-                    loss,
-                    context_params.values(),
-                    allow_unused=False,
+                    outputs=loss,
+                    inputs=context_params.values(),
                     create_graph=(not self.first_order) or (step_num == num_meta_steps - 1),
                 )
 
@@ -78,16 +79,14 @@ class MetaSDF(nn.Module):
                     else:
                         raise NotImplementedError
                     context_params[name] = param - lr * grad
-                    # TODO: Add proximal regularization from iMAML
-                    # Add meta-regularization
 
         if return_preds:
             return inner_preds
 
         return context_params
 
-    def forward(self, coords, context_params):
-        output = self.hypo_net(coords, params=context_params)
+    def forward(self, points, context_params):
+        output = self.hypo_net(points, params=context_params)
         return output
 
 
@@ -168,12 +167,12 @@ class SDFHyperNetwork(nn.Module):
         self.hypo_net = hypo_net
         self.hyper_net = hyper_net
 
-    def forward(self, coords, context_params):
+    def forward(self, points, context_params):
         z = self.encoder(context_params['index'])
         batch_size = z.shape[0]
         z = z.reshape(batch_size, -1)
         params = self.hyper_net.forward(z)
-        out = self.hypo_net.forward(coords, params)
+        out = self.hypo_net.forward(points, params)
         return out
 
     def freeze_hyper_net(self):
@@ -257,8 +256,8 @@ class Siren(MetaModule):
 
         self.net = nn.ModuleList(self.net)
 
-    def forward(self, coords, params):
-        res = coords
+    def forward(self, points, params):
+        res = points
 
         for i, layer in enumerate(self.net):
             res = layer(res, params=self.get_subdict(params, f'net.{i}'))

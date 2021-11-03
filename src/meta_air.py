@@ -27,7 +27,7 @@ hypo_net.net[-1].apply(sal_init_last_layer)
 
 model = MetaSDF(
     hypo_net,
-    multitask_batch_loss,  # 3d - multitask_batch_loss, l2_batch_loss - mnist
+    hypo_loss=multitask_batch_loss,  # 3d - multitask_batch_loss, l2_batch_loss - mnist
     init_lr=5e-3,
     num_meta_steps=1,  # 5
     first_order=False,

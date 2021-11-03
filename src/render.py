@@ -14,6 +14,7 @@ def rotate(scene):
     camera_old, _geometry = scene.graph[scene.camera.name]
     camera_new = np.dot(matrix, camera_old)
     scene.graph[scene.camera.name] = camera_new
+    return scene
 
 
 def render(scene, resolution):
@@ -24,19 +25,18 @@ def render(scene, resolution):
     return image
 
 
-def mesh_to_image(mesh, resolution):
-    scene = mesh.scene()
-    rotate(scene)
+def mesh_to_image(mesh, resolution=None):
+    if resolution is None:
+        resolution = (1024, 1024)
+    scene = rotate(mesh.scene())
     image = render(scene, resolution)
     return image
 
 
-def coords_to_image(coords, resolution=(1024, 1024)):
-    cloud = trimesh.points.PointCloud(coords)
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=FutureWarning)
-        scene = cloud.scene()
-    rotate(scene)
+def points_to_image(points, resolution=None):
+    cloud = trimesh.points.PointCloud(points)
+    # cloud = points_to_cloud(points)  todo bug https://github.com/mikedh/trimesh/issues/1198
+    scene = rotate(cloud.scene())
     image = render(scene, resolution)
     return image
 

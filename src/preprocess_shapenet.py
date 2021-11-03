@@ -11,35 +11,36 @@ from tqdm import tqdm
 
 # noinspection PyUnresolvedReferences
 import monkey_patches
-from render import coords_to_image
+from render import points_to_image
 
 
 # noinspection PyShadowingNames
 def worker(key_path, key, points_num, out_queue: mp.Queue):
     mesh = scale_to_unit_sphere(trimesh.load(key_path[key]))
+    mesh.vertices *= 0.95
     try:
-        coords, real_sdf = sample_sdf_near_surface(mesh, number_of_points=points_num)
+        points, real_dist = sample_sdf_near_surface(mesh, number_of_points=points_num)
     except BadMeshException:
         out_queue.put((key, None, None))
         return
 
     df = pd.DataFrame({
-        'x': coords[:, 0],
-        'y': coords[:, 1],
-        'z': coords[:, 2],
-        'real_sdf': real_sdf,
+        'x': points[:, 0],
+        'y': points[:, 1],
+        'z': points[:, 2],
+        'real_dist': real_dist,
     }, copy=False)
 
-    render_coords = coords[real_sdf <= 0]
-    img = coords_to_image(render_coords)
+    render_coords = points[real_dist <= 0]
+    img = points_to_image(render_coords)
 
     out_queue.put((key, df, img))
 
 
 if __name__ == '__main__':
-    store_path = Path('../datasets/shapenet300000.h5')
-    points_num = 30000  # 2 * 64 ** 3
-    max_workers = 4
+    store_path = Path('../datasets/shapenet1000000.h5')
+    points_num = 500 * 1000  # 2 * 64 ** 3
+    max_workers = 1
     out_queue = mp.Queue()
 
     with open('../datasets/skip_keys.txt', 'r') as f:
@@ -70,12 +71,12 @@ if __name__ == '__main__':
         for in_key in todo_keys:
             # noinspection PyBroadException
             try:
-                kwargs = {
-                    'key': in_key,
-                    'key_path': key_path,
-                    'points_num': points_num,
-                    'out_queue': out_queue,
-                }
+                kwargs = dict(
+                    key=in_key,
+                    key_path=key_path,
+                    points_num=points_num,
+                    out_queue=out_queue
+                )
 
                 # f(**kwargs)
                 mp.Process(target=worker, kwargs=kwargs).start()

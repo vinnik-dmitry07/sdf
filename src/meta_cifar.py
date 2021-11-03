@@ -17,7 +17,7 @@ val_dataloader = DataLoader(val_dataset, batch_size=32)
 hypo_net = Siren(in_features=2, hidden_features=128, hidden_layers=3, out_features=3, outermost_linear=True)
 model = MetaSDF(
     hypo_net,
-    l2_loss,  # MAML ignores batch
+    hypo_loss=l2_loss,  # MAML ignores batch
     init_lr=1e-5,
     num_meta_steps=3,
     first_order=False,
