@@ -1,16 +1,15 @@
 import warnings
 
 import numpy as np
+import pyglet
 import trimesh
 from PIL import Image
 
+pyglet.options['headless'] = True
 
-def rotate(scene):
-    matrix = trimesh.transformations.rotation_matrix(
-        angle=np.radians(145.0),
-        direction=[0, 1, 0.1],
-        point=scene.centroid
-    )
+
+def rotate(scene, angle=np.radians(145.0), direction=(0, 1, 0.1)):
+    matrix = trimesh.transformations.rotation_matrix(angle, direction, point=scene.centroid)
     camera_old, _geometry = scene.graph[scene.camera.name]
     camera_new = np.dot(matrix, camera_old)
     scene.graph[scene.camera.name] = camera_new

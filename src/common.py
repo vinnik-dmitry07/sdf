@@ -6,20 +6,22 @@ import PIL
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import torch
 import torchvision
 import trimesh
-from matplotlib import image
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from scipy.ndimage import distance_transform_edt
 from skimage.measure import marching_cubes
-from sklearn.model_selection import train_test_split
+from souls.shapes import Mesh
+from souls.utils.mesh import sample_surface_points
 from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import transforms
 from tqdm import tqdm
 
 import render
+
+SDF_POS = 0
+SIGN_POS = 1
 
 
 class SignedDistanceTransform:
@@ -169,30 +171,70 @@ class CIFAR10:
 
 # noinspection DuplicatedCode
 class ShapeNetDataset(torch.utils.data.Dataset):
-    def __init__(self, split, dtype):
+    def __init__(self, dataset_path, models_class, split, dtype):
         self.dtype = dtype
+        self.models_class = models_class
+        self.store = h5py.File(dataset_path, 'r', libver='latest', swmr=True)
+        self.keys = list(self.store[models_class].keys())[:1] * 32
+        self.cache = {}
 
-        self.store = pd.HDFStore('../datasets/shapenet300000.h5', 'r')
-        all_keys = [k.lstrip('/') for k in self.store.keys()][2:4]
-        self.store.close()
-        self.store = None
-        self.keys = train_test_split(all_keys, train_size=0.8, shuffle=False)[0 if split == 'train' else 1]
+        # self.meshes = []
+        # for k in tqdm(self.keys, desc='Preprocess'):
+        #     mesh_data = self.store[self.models_class][k]
+        #     faces = torch.tensor(np.array(mesh_data['faces']), dtype=self.dtype)
+        #     vertices = torch.tensor(np.array(mesh_data['vertices']), dtype=self.dtype)
+        #     mesh = Mesh(vertices, faces).cuda()
+        #     mesh.normalize_(to_sphere=True)
+        #     self.meshes.append(mesh)
 
     def get_image(self, index):
-        # meta_dict = self[index]
-        # img = points_to_image(meta_dict['all']['points'][meta_dict['all']['real_dist'].squeeze() <= 0])
-        img = image.imread(f'../datasets/points/{self.keys[index]}.jpg')
+        meta_dict = self[index]
+        img = render.points_to_image(meta_dict['all']['points'][meta_dict['all']['real_dist'][:, SDF_POS] <= 0].cpu())
         return img
 
     def __len__(self):
         return len(self.keys)
 
     def __getitem__(self, item):
-        if self.store is None:
-            self.store = pd.HDFStore('../datasets/shapenet300000.h5', 'r')
-        df = self.store[self.keys[item]]
-        points = torch.tensor(df.iloc[:, 0:3].values, dtype=self.dtype)
-        real_dist = torch.tensor(df.iloc[:, 3:4].values, dtype=self.dtype)
+        if item in self.cache:
+            mesh = self.cache[item]
+        else:
+            mesh_data = self.store[self.models_class][self.keys[item]]
+            faces = torch.tensor(np.array(mesh_data['faces']), dtype=self.dtype, device='cuda')
+            vertices = torch.tensor(np.array(mesh_data['vertices']), dtype=self.dtype, device='cuda')
+            mesh = Mesh(vertices, faces, accelerate=True)
+            mesh.normalize_(to_sphere=True)
+
+            if len(self.cache) < 100:
+                self.cache[item] = mesh
+
+        # mesh = self.meshes[item]
+
+        points_parts = []
+        real_dist_parts = []
+        for n, f in [
+            (int(0.5 * 0.95 * 128 ** 2), lambda n: sample_surface_points(mesh, samples_num=n, noise_std=np.sqrt(0.005))),
+            (int(0.5 * 0.95 * 128 ** 2), lambda n: sample_surface_points(mesh, samples_num=n, noise_std=np.sqrt(0.005 / 10))),
+            (int(0.05 * 128 ** 2), lambda n: torch.rand((n, 3), device='cuda').mul(2).sub(1)),
+        ]:
+            points = f(1000 * n)
+            idx = torch.randperm(points.shape[0], device='cuda')
+            points = points[idx]
+            real_dist = mesh.signed_distance(points)
+
+            neg_idx = (real_dist <= 0).nonzero().squeeze()
+            possible_to_take = min(n // 2, neg_idx.shape[0])
+            # print(possible_to_take, n // 2)
+            neg_idx = neg_idx[:possible_to_take]
+            pos_idx = (real_dist > 0).nonzero().squeeze()[:n - possible_to_take]
+
+            points_parts.append(points[neg_idx])
+            points_parts.append(points[pos_idx])
+            real_dist_parts.append(real_dist[neg_idx])
+            real_dist_parts.append(real_dist[pos_idx])
+
+        points = torch.cat(points_parts)
+        real_dist = torch.cat(real_dist_parts).unsqueeze(1)
 
         indices = torch.randperm(points.shape[0])
         context_indices = indices[:indices.shape[0] // 2]
@@ -208,56 +250,56 @@ class ShapeNetDataset(torch.utils.data.Dataset):
 
 
 # noinspection PyUnusedLocal
-def l2_loss(pred, real, sigma=None):
+def l2_hyper_loss(pred, real, sigma=None):
     return ((pred - real) ** 2).mean()
 
 
 # noinspection PyUnusedLocal
-def l2_batch_loss(pred, real, sigma=None):
+def l2_hypo_loss(pred, real, sigma=None):
     return ((pred - real) ** 2).sum(0).mean()  # sum along batch
 
 
 # noinspection PyUnusedLocal
-def l1_loss(pred, real, sigma=None):
+def l1_hyper_loss(pred, real, sigma=None):
     return torch.abs(pred - real).mean()
 
 
 # noinspection PyUnusedLocal
-def l1_batch_loss(pred, real, sigma=None):
+def l1_hypo_loss(pred, real, sigma=None):
     return torch.abs(pred - real).sum(0).mean()  # sum along batch
 
 
 # noinspection PyUnusedLocal
-def sal_loss(pred, real, sigma=None):
+def sal_hyper_loss(pred, real, sigma=None):
     return torch.abs(torch.abs(pred) - torch.abs(real)).mean()
 
 
 # noinspection PyUnusedLocal
-def sal_batch_loss(pred, real, sigma=None):
+def sal_hypo_loss(pred, real, sigma=None):
     return torch.abs(torch.abs(pred) - torch.abs(real)).sum(0).mean()  # sum along batch
 
 
-def multitask_loss(pred, real_dist, sigma):
+def multitask_hyper_loss(pred, real_dist, sigma):
     real_sign = (real_dist > 0).type(real_dist.dtype)
-    pred_sign = pred[:, :, 0:1]  # : - to save [1, N, 1] last dim
-    pred_dist = pred[:, :, 1:2]
+    pred_dist = pred[:, :, SDF_POS:SDF_POS + 1]
+    pred_sign = pred[:, :, SIGN_POS:SIGN_POS + 1]  # : - to save [1, N, 1] last dim
 
     # Binary Cross Entropy with sigmoid input: y*log(sigmoid(x)) + (1 - y)*log(1 - sigmoid(x))
     bce_loss = torch.nn.BCEWithLogitsLoss(reduction='none')(pred_sign, real_sign).mean()  # sum along batch
-    l1_loss_ = l1_loss(pred_dist, real_dist)
+    l1_loss_ = l1_hyper_loss(pred_dist, real_dist)
 
     loss = bce_loss / (2 * sigma[0] ** 2) + l1_loss_ / (2 * sigma[1] ** 2) + torch.log(sigma.prod())
     return loss
 
 
-def multitask_batch_loss(pred, real_dist, sigma):
+def multitask_hypo_loss(pred, real_dist, sigma):
     real_sign = (real_dist > 0).type(real_dist.dtype)
-    pred_sign = pred[:, :, 0:1]  # : - to save [1, N, 1] last dim
-    pred_dist = pred[:, :, 1:2]
+    pred_dist = pred[:, :, SDF_POS:SDF_POS + 1]
+    pred_sign = pred[:, :, SIGN_POS:SIGN_POS + 1]  # : - to save [1, N, 1] last dim
 
     # Binary Cross Entropy with sigmoid input: y*log(sigmoid(x)) + (1 - y)*log(1 - sigmoid(x))
     bce_loss = torch.nn.BCEWithLogitsLoss(reduction='none')(pred_sign, real_sign).sum(0).mean()  # sum along batch
-    l1_loss_ = l1_batch_loss(pred_dist, real_dist)
+    l1_loss_ = l1_hypo_loss(pred_dist, real_dist)
 
     batch_loss = bce_loss / (2 * sigma[0] ** 2) + l1_loss_ / (2 * sigma[1] ** 2) + torch.log(sigma.prod())
     return batch_loss
@@ -320,13 +362,6 @@ def next_step(
 
         batch_pos = np.random.randint(batch_cpu['index'].shape[0])
 
-        if hyper_loss in [l1_loss, l2_loss, sal_loss]:
-            sdf_pos = 0
-        elif hyper_loss == multitask_loss:
-            sdf_pos = 1
-        else:
-            raise ValueError(hyper_loss)
-
         plt.rcParams.update({'font.size': 22, 'font.family': 'monospace'})
         cols = len(all_preds) + 1
         axs = plt.subplots(nrows=1, ncols=cols, figsize=(5 * cols, 6))[1]
@@ -352,7 +387,7 @@ def next_step(
             elif type(dataset) == ShapeNetDataset:
                 if plot_mode == 'points':
                     points = batch_gpu['all']['points'][batch_pos].detach().cpu()
-                    pred_dist = pred[batch_pos, :, sdf_pos]
+                    pred_dist = pred[batch_pos, :, SDF_POS]
                     # pred_sign = torch.sigmoid(pred[batch_pos, :, 0])  TODO
                     # batch_gpu['all']['real_dist'][batch_pos].squeeze().detach().cpu()
 
@@ -372,7 +407,7 @@ def next_step(
                             model.forward(
                                 torch.tensor(batch, dtype=dataset.dtype, device='cuda'),
                                 context_params_train1
-                            )[0, :, sdf_pos]
+                            )[0, :, SDF_POS]
                             for batch in batched_grid
                         ]
                     pred_dist = torch.cat(batched_sdf)

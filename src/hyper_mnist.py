@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from common import MNISTSDFDataset, next_step, l2_loss
+from common import MNISTSDFDataset, next_step, l2_hyper_loss
 from meta_modules import AutoDecoder, HyperNetwork, SDFHyperNetwork
 from modules import ReLUFC
 
@@ -28,7 +28,7 @@ for epoch in tqdm(range(3000), desc='Epoch'):
     model.train()
     for step, batch_cpu in enumerate(tqdm(train_dataloader, desc='Train')):
         train_loss = next_step(
-            model, l2_loss, train_dataset, epoch, step, batch_cpu,
+            model, l2_hyper_loss, train_dataset, epoch, step, batch_cpu,
             get_context_params=lambda batch_gpu: {'index': batch_gpu['index']},
         )
 
@@ -42,7 +42,7 @@ for epoch in tqdm(range(3000), desc='Epoch'):
     with torch.no_grad():
         for step, batch_cpu in enumerate(tqdm(val_dataloader, desc='Valid')):
             valid_loss = next_step(
-                model, l2_loss, val_dataset, epoch, step, batch_cpu,
+                model, l2_hyper_loss, val_dataset, epoch, step, batch_cpu,
                 get_context_params=lambda batch_gpu: batch_gpu['index'],
             )
 
