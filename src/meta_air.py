@@ -59,7 +59,7 @@ for epoch in tqdm(range(start_epoch, 3000), desc='Epoch'):
 
         train_loss = next_step(
             model=model, hyper_loss=l1_hyper_loss, dataset=train_dataset,
-            epoch=epoch, step=global_step, batch_cpu=batch_cpu,
+            epoch=epoch, step=step, batch_cpu=batch_cpu,
             log_every=100 / train_dataloader.batch_size,
             get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
             # get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),  TODO
@@ -72,24 +72,26 @@ for epoch in tqdm(range(start_epoch, 3000), desc='Epoch'):
         torch.nn.utils.clip_grad_value_(model.parameters(), 0.5)
         optimizer.step()
 
-    # model.eval()
-    # with torch.no_grad():
-    #     for step, batch_cpu in enumerate(tqdm(val_dataloader, desc='Valid')):
-    #         valid_loss = next_step(
-    #             model, multitask_loss, val_dataset, epoch, step, batch_cpu,
-    #             log_every=1,
-    #             get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
-    #             # get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),  TODO
-    #         )
-    #
-    #         writer.add_scalar('Loss/valid', valid_loss, global_step=step + epoch * len(val_dataloader))
+    model.eval()
+    with torch.no_grad():
+        for step, batch_cpu in enumerate(val_dataloader):
+            global_step = step + epoch * len(val_dataloader)
+
+            valid_loss = next_step(
+                model=model, hyper_loss=l1_hyper_loss, dataset=val_dataset,
+                epoch=epoch, step=step, batch_cpu=batch_cpu, log_every=1,
+                get_context_params=lambda batch_gpu: model.generate_params(batch_gpu['context']),
+                # get_context_params_test=lambda batch_gpu: model.generate_params(batch_gpu['surface']),  TODO
+            )
+
+            writer.add_scalar('Loss/valid', valid_loss, global_step)
 
     scheduler.step()
 
-    # if epoch % 1 == 0:
-    #     torch.save({
-    #         'model': model,
-    #         'optimizer_state_dict': optimizer.state_dict(),
-    #         'scheduler_state_dict': scheduler.state_dict(),
-    #         'epoch': epoch,
-    #     }, f'../output/meta_air_e{epoch:04d}.pth')
+    if epoch % 1 == 0:
+        torch.save({
+            'model': model,
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'epoch': epoch,
+        }, f'../output/meta_air_e{epoch:04d}.pth')

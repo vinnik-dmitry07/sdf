@@ -217,12 +217,12 @@ class ShapeNetDataset(torch.utils.data.Dataset):
             (int(0.5 * 0.95 * 128 ** 2), lambda n: sample_surface_points(mesh, samples_num=n, noise_std=np.sqrt(0.005 / 10))),
             (int(0.05 * 128 ** 2), lambda n: torch.rand((n, 3), device='cuda').mul(2).sub(1)),
         ]:
-            points = f(1000 * n)
+            points = f(3 * n)
             idx = torch.randperm(points.shape[0], device='cuda')
             points = points[idx]
             real_dist = mesh.signed_distance(points)
 
-            neg_idx = (real_dist <= 0).nonzero().squeeze()
+            neg_idx = (real_dist <= 0).nonzero().squeeze(1)
             possible_to_take = min(n // 2, neg_idx.shape[0])
             # print(possible_to_take, n // 2)
             neg_idx = neg_idx[:possible_to_take]
@@ -437,7 +437,7 @@ def next_step(
 
         plt.suptitle(
             ((dataset.keys[index] + '\n') if hasattr(dataset, 'keys') else '')
-            + ('train' if model.training else 'valid ') + f' {loss:.5f}'
+            + f'{"train" if model.training else "valid"} e{epoch} s{step} {loss:.5f}'
         )
         plt.show()
     return loss
